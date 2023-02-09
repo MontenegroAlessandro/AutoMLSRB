@@ -56,6 +56,8 @@ class TunerSMAC(BaseHPO):
 
         # flag spotting if it is the first run or not
         self.first_tune = True
+
+        # other useful parameters
         self.n_runs = 1
         self.seed = seed
         self.run_history = None
@@ -87,18 +89,41 @@ class TunerSMAC(BaseHPO):
         )
 
     def tune(self, trials=None):
+        """
+        :param trials: how many additional trials to perform, a trial is an evaluation of the objective function
+        :return: the hyperparameter configuration with the minimum cost
+        """
         # just run optimize if it is the first run
         if self.first_tune:
             self.first_tune = False
+
+            # if the user passes a new number of trials, re-instantiate the smac object
+            if trials is not None:
+                self.trials = trials
+                self.scenario_dict['runcount_limit'] = self.trials
+                self.scenario = Scenario(self.scenario_dict)
+
+                # create the SMAC object
+                self.smac = SMAC4HPO(
+                    scenario=self.scenario,
+                    tae_runner=self.objective_foo,
+                    n_jobs=self.n_jobs,
+                    run_id=self.n_runs
+                )
         # otherwise we need to restore the old context
         else:
-            if trials is None:
-                trials = self.trials
             # Instantiate new SMAC run
+            if trials is None:
+                # when no trials are added, we just perform the double of the old number of trials
+                trials = self.trials
+
             # Create scenario
-            self.trials = self.trials + trials
+            self.trials += trials
             self.scenario_dict['runcount_limit'] = self.trials
             self.scenario = Scenario(self.scenario_dict)
+
+            # build the starting poit for the SMAC object
+            self.build_last_history()
 
             # Now we can initialize SMAC with the recovered objects and restore the
             # state where we left off. By providing stats and a restore_incumbent, SMAC
@@ -116,19 +141,17 @@ class TunerSMAC(BaseHPO):
         # optimize
         res = self.smac.optimize()
 
-        # build old run history
-        self.build_last_history()
-
         # save results
         self.save_results()
 
+        # increment the number of runs
         self.n_runs += 1
 
         return res
 
     def save_results(self):
-        file_name = os.path.join(self.log_path, "results_" + str(self.n_runs) + ".json")
-        self.run_history.save_json(file_name)
+        file_name = os.path.join(self.log_path, "results.json")
+        self.smac.runhistory.save_json(file_name)
 
     def build_last_history(self):
         # Populate run_history with custom data (e.g. from DataFrame)

@@ -27,12 +27,6 @@ if __name__ == "__main__":
         seed=2023
     )
 
-    res = tuner.tune()
-    print(res)
-    print(list(tuner.smac.runhistory.config_ids.keys()))
-    print([tuner.smac.runhistory.get_cost(config) for config in list(tuner.smac.runhistory.config_ids.keys())])
-
-    res = tuner.tune(30)
-    print(res)
-    print(list(tuner.smac.runhistory.config_ids.keys()))
-    print([tuner.smac.runhistory.get_cost(config) for config in list(tuner.smac.runhistory.config_ids.keys())])
+    for _ in range(3):
+        res = tuner.tune(5)
+        print(res)
