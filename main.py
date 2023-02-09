@@ -2,7 +2,7 @@ import numpy as np
 from ConfigSpace.hyperparameters import UniformIntegerHyperparameter
 from sklearn.ensemble import RandomForestClassifier
 from HyperparametersOptimization.hyperparemeters_optimization import TunerSMAC
-from Datasets import ClsDatasets
+from Datasets.ClsImgDatasets import *
 
 
 def try_smac():
@@ -35,5 +35,5 @@ def try_smac():
 if __name__ == "__main__":
     # try_smac()
 
-    x, y, data = ClsDatasets.CreditGDataset().get_dataset()
-    print(x, y)
+    data = MNISTDataset()
+    x, y, z, q = data.get_dataset()
