@@ -2,17 +2,17 @@ import numpy as np
 from ConfigSpace.hyperparameters import UniformIntegerHyperparameter
 from sklearn.ensemble import RandomForestClassifier
 from HyperparametersOptimization.hyperparemeters_optimization import TunerSMAC
+from Datasets import ClsDatasets
 
 
-def train_random_forest(config):
-    model = RandomForestClassifier(max_depth=config["depth"])
-    model.fit(X_train, y_train)
+def try_smac():
+    def train_random_forest(config):
+        model = RandomForestClassifier(max_depth=config["depth"])
+        model.fit(X_train, y_train)
 
-    # Define the evaluation metric as return
-    return 1 - model.score(X_val, y_val)
+        # Define the evaluation metric as return
+        return 1 - model.score(X_val, y_val)
 
-
-if __name__ == "__main__":
     X_train, y_train = np.random.randint(2, size=(20, 2)), np.random.randint(2, size=20)
     X_val, y_val = np.random.randint(2, size=(5, 2)), np.random.randint(2, size=5)
 
@@ -28,5 +28,12 @@ if __name__ == "__main__":
     )
 
     for _ in range(3):
-        res = tuner.tune(5)
+        res = tuner.tune(10)
         print(res)
+
+
+if __name__ == "__main__":
+    # try_smac()
+
+    x, y, data = ClsDatasets.CreditGDataset().get_dataset()
+    print(x, y)

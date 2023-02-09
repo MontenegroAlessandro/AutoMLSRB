@@ -1,5 +1,5 @@
 # Here are present all the classes implementing Hyper Parameter Optimization procedures
-import json
+
 # Libraries
 import os
 import numpy as np
@@ -11,7 +11,7 @@ from smac.scenario.scenario import Scenario
 from smac.runhistory.runhistory import RunHistory
 from smac.tae import StatusType
 from smac.stats.stats import Stats
-
+# todo: be sure about SMAC4BB, Hyperband etc...
 
 # Base Class
 class BaseHPO(ABC):
