@@ -1,39 +1,80 @@
-import numpy as np
-from ConfigSpace.hyperparameters import UniformIntegerHyperparameter
-from sklearn.ensemble import RandomForestClassifier
+# Libraries
+import pickle
+from sklearn.ensemble import AdaBoostClassifier, RandomForestClassifier
+from Datasets.ClsDatasets import WineDataset
+from ConfigSpace.hyperparameters import UniformFloatHyperparameter, UniformIntegerHyperparameter
 from HyperparametersOptimization.hyperparemeters_optimization import TunerSMAC
-from Datasets.ClsImgDatasets import *
+from sklearn.model_selection import cross_val_score
+from AutomaticModelGeneration.automatic_model_generation import Arm, BaseAlgorithmSelection
+
+##### Data #####
+data = WineDataset()
+X = data.input
+Y = data.target
+print(X.shape, Y.shape)
+
+##### Hyperparameter(s) #####
+hp_dict_adaboost = dict(
+    n_estimators=UniformIntegerHyperparameter("n_estimators", 1, 99),
+    learning_rate=UniformFloatHyperparameter("learning_rate", 0, 10)
+)
+
+hp_dict_rf = dict(
+    max_depth=UniformIntegerHyperparameter("max_depth", 1, 99)
+)
 
 
-def try_smac():
-    def train_random_forest(config):
-        model = RandomForestClassifier(max_depth=config["depth"])
-        model.fit(X_train, y_train)
+##### Objective(s) #####
+def objective_adaboost(config):
+    model = AdaBoostClassifier(n_estimators=config["n_estimators"], learning_rate=config["learning_rate"])
+    scores = cross_val_score(model, X, Y, cv=10)
+    print(scores.mean(), scores.std())
+    return 1 - scores.mean()
 
-        # Define the evaluation metric as return
-        return 1 - model.score(X_val, y_val)
 
-    X_train, y_train = np.random.randint(2, size=(20, 2)), np.random.randint(2, size=20)
-    X_val, y_val = np.random.randint(2, size=(5, 2)), np.random.randint(2, size=5)
+def objective_rf(config):
+    model = RandomForestClassifier(max_depth=config["max_depth"])
+    scores = cross_val_score(model, X, Y, cv=10)
+    print(scores.mean(), scores.std())
+    return 1 - scores.mean()
 
-    hp_dict = {0: UniformIntegerHyperparameter("depth", 2, 100)}
 
-    tuner = TunerSMAC(
-        hp_dict=hp_dict,
-        objective_foo=train_random_forest,
-        trials=10,
-        log_path="experiments/SMAC",
-        n_jobs=1,
-        seed=2023
-    )
+##### Tuner(s) #####
+tuner_args = dict(
+    hp_dict=hp_dict_adaboost,
+    objective_foo=objective_adaboost,
+    trials=10,
+    log_path="experiments/test_ada",
+    n_jobs=1,
+    seed=2023
+)
+tuner_adaboost = TunerSMAC(**tuner_args)
 
-    for _ in range(3):
-        res = tuner.tune(10)
-        print(res)
+tuner_args["hp_dict"] = hp_dict_rf
+tuner_args["objective_foo"] = objective_rf
+tuner_args["log_path"] = "experiments/test_rf"
+tuner_rf = TunerSMAC(**tuner_args)
 
+##### Arm(s) #####
+arm_adaboost = Arm(model=AdaBoostClassifier, tuner=tuner_adaboost)
+arm_rf = Arm(model=RandomForestClassifier, tuner=tuner_rf)
+
+##### Dictionary of Arm(s) #####
+arms_dict = dict(
+    adaboost=arm_adaboost,
+    random_forest=arm_rf
+)
+
+##### Automatic Block ######
+auto_model_generation = BaseAlgorithmSelection(
+    budget=10,
+    train_data_input=X,
+    train_data_output=Y,
+    arm_dictionary=arms_dict,
+    trials_per_step=10
+)
 
 if __name__ == "__main__":
-    # try_smac()
-
-    data = MNISTDataset()
-    x, y, z, q = data.get_dataset()
+    model = auto_model_generation.learn()
+    filename = 'best_model.sav'
+    pickle.dump(model, open(filename, 'wb'))

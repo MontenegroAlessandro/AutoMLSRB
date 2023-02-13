@@ -1,5 +1,4 @@
 import tensorflow as tf
-from keras import datasets
 from abc import ABC
 
 

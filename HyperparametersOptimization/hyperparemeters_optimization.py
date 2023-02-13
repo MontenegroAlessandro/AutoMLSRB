@@ -81,7 +81,7 @@ class TunerSMAC(BaseHPO):
         self.scenario = Scenario(self.scenario_dict)
 
         # create the SMAC object
-        self.smac = SMAC4HPO(
+        self.hpoptimizer = SMAC4HPO(
             scenario=self.scenario,
             tae_runner=self.objective_foo,
             n_jobs=self.n_jobs,
@@ -104,7 +104,7 @@ class TunerSMAC(BaseHPO):
                 self.scenario = Scenario(self.scenario_dict)
 
                 # create the SMAC object
-                self.smac = SMAC4HPO(
+                self.hpoptimizer = SMAC4HPO(
                     scenario=self.scenario,
                     tae_runner=self.objective_foo,
                     n_jobs=self.n_jobs,
@@ -128,7 +128,7 @@ class TunerSMAC(BaseHPO):
             # Now we can initialize SMAC with the recovered objects and restore the
             # state where we left off. By providing stats and a restore_incumbent, SMAC
             # automatically detects the intention of restoring a state.
-            self.smac = SMAC4HPO(
+            self.hpoptimizer = SMAC4HPO(
                 scenario=self.scenario,
                 tae_runner=self.objective_foo,
                 runhistory=self.run_history,
@@ -139,7 +139,7 @@ class TunerSMAC(BaseHPO):
             )
 
         # optimize
-        res = self.smac.optimize()
+        res = self.hpoptimizer.optimize()
 
         # save results
         self.save_results()
@@ -151,13 +151,13 @@ class TunerSMAC(BaseHPO):
 
     def save_results(self):
         file_name = os.path.join(self.log_path, "results.json")
-        self.smac.runhistory.save_json(file_name)
+        self.hpoptimizer.runhistory.save_json(file_name)
 
     def build_last_history(self):
         # Populate run_history with custom data (e.g. from DataFrame)
         self.run_history = RunHistory()
-        configurations = list(self.smac.runhistory.config_ids.keys())
-        costs = [self.smac.runhistory.get_cost(config) for config in configurations]
+        configurations = list(self.hpoptimizer.runhistory.config_ids.keys())
+        costs = [self.hpoptimizer.runhistory.get_cost(config) for config in configurations]
         times = [0.] * len(costs)  # add your runtimes if applicable
         status = [StatusType.SUCCESS] * len(costs)
         self.incumbent = configurations[np.argmin(costs)]
