@@ -87,6 +87,6 @@ auto_model_generation2 = AlgorithmSelectionSRB(
 )
 
 if __name__ == "__main__":
-    model = auto_model_generation2 .learn()
+    model = auto_model_generation2.learn()
     filename = base_dir + 'best_model.sav'
     pickle.dump(model, open(filename, 'wb'))
