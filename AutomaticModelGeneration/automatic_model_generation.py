@@ -1,4 +1,5 @@
 # Here we implement different versions of Algorithm Selection Modules
+import math
 import numpy as np
 
 # Class defining the Arm concept
@@ -87,15 +88,115 @@ class BaseAlgorithmSelection:
 
 
 # Class implementing Algorithm Selection via Stochastic Rising Bandits
-class StochasticRB:
-    def __init__(self):
-        pass
+class AlgorithmSelectionSRB(BaseAlgorithmSelection):
+    def __init__(self, exp_param=1, sigma=0.1, eps=0.25, budget=None, train_data_input=None, train_data_output=None, arm_dictionary=None,
+                 trials_per_step=1, n_jobs=1, parallel_arms=1):
+        """
+        :param exp_param: exploration parameter
+        :param sigma: expected noise
+        :param eps: epsilon parameter to select the window size
+        :param budget: how many pulls (i.e., steps of HPO)
+        :param train_data_input: the X
+        :param train_data_output: the Y
+        :param arm_dictionary: a dictionary of Arm objects
+        :param trials_per_step: how many objective evaluations per optimization step
+        :param n_jobs: how many parallel jobs per steps
+        :param parallel_arms: how many parallel arms to select in each stage of the optimization procedure
+        """
+        # initialize the super class
+        super().__init__(budget=budget, train_data_input=train_data_input, train_data_output=train_data_output,
+                         arm_dictionary=arm_dictionary, trials_per_step=trials_per_step, n_jobs=n_jobs,
+                         parallel_arms=parallel_arms)
+
+        # check additional input
+        assert exp_param >= 0, "[Error] Illegal Exploration Parameter."
+        assert sigma >= 0, "[Error] Illegal negative value for the expected Noise."
+        assert eps > 0 and eps < 0.5, "[Error] Illegal value for Epsilon. Remember eps in (0, 0.5)."
+
+        # set attributes from inputs
+        self.exp_param = exp_param
+        self.sigma = sigma
+        self.eps = eps
+
+        # set additional attributes
+        self.n_arms = len(self.arms)
+        self.warmup = True
+        self.pulls = np.zeros(self.n_arms)
+        self.window = np.zeros(self.n_arms)
+        self.mu_check = np.zeros(self.n_arms)
+        self.beta_check = np.zeros(self.n_arms)
+        self.upper_bound = np.inf * np.ones(self.n_arms)
+        self.a = np.zeros(self.n_arms)
+        self.b = np.zeros(self.n_arms)
+        self.c = np.zeros(self.n_arms)
+        self.d = np.zeros(self.n_arms)
+        self.scores = np.zeros((self.n_arms, self.budget))
 
     def learn(self):
-        pass
+        for _ in range(self.budget):
+            print("[Log] Step: ", self.step_id)
+            # select the arm to pull
+            if self.warmup:
+                self.last_pull = self.step_id % self.n_arms
+                print("[Log] Pull: ", self.last_pull)
+            else:
+                self.last_pull = np.argmax(self.upper_bound)
+                print("[Log] Pull: ", self.last_pull)
+                print("[Log] UBs: ", self.upper_bound)
+
+            # pull the arm
+            self.arms[self.last_pull].tuner.tune(self.trials_per_step)
+
+            # update the best
+            configurations = list(self.arms[self.last_pull].tuner.hpoptimizer.runhistory.config_ids.keys())
+            costs = [self.arms[self.last_pull].tuner.hpoptimizer.runhistory.get_cost(config) for config in configurations]
+            incumbent = configurations[np.argmin(costs)]
+            incumbent_cost = np.min(costs)
+            if self.best_model is None or self.best_model_eval >= incumbent_cost:
+                print("[Log] New best: ", self.last_pull, " score: ", 1 - incumbent_cost)
+                self.best_model = self.arms[self.last_pull].model(**incumbent)
+                self.best_model_eval = incumbent_cost
+
+            # update the parameters
+            self.step_id += 1
+            reward = 1 - incumbent_cost
+            arm = int(self.last_pull)
+            self.pulls[arm] += 1
+
+            n = int(self.pulls[arm])
+            h = math.floor(self.eps * n)
+
+            self.scores[arm][n - 1] = reward
+
+            if h == self.window[arm]:
+                self.a[arm] += reward - self.scores[arm][n - h - 1]
+                self.b[arm] += self.scores[arm][n - h - 1] - self.scores[arm][n - 2 * h - 1]
+                self.c[arm] += n * reward - (n - h) * self.scores[arm][n - h - 1]
+                self.d[arm] += n * self.scores[arm][n - h - 1] - (n - h) * self.scores[arm][n - 2 * h - 1]
+            else:
+                self.a[arm] += reward
+                self.b[arm] += self.scores[arm][n - 2 * h]
+                self.c[arm] += n * reward
+                self.d[arm] += (n - h) * self.scores[arm][n - 2 * h] + self.b[arm]
+
+            self.window[arm] = h
+            a = self.a[arm]
+            b = self.b[arm]
+            c = self.c[arm]
+            d = self.d[arm]
+
+            self.mu_check[arm] = (1 / h) * (a + (self.budget * (a - b) / h) - ((c - d) / h)) if h > 0 else 0
+            self.beta_check[arm] = self.sigma * (self.budget - n + h - 1) * math.sqrt(
+                (10 * self.exp_param) / (math.pow(h, 3))) if h > 0 else 0
+            self.upper_bound[arm] = self.mu_check[arm] + self.beta_check[arm] if h > 0 else 0
+
+            # check if the warmup phase is over
+            if 0 not in self.window:
+                self.warmup = False
+
+        # fit the model on the data
+        model = self.best_model.fit(self.X, self.Y)
+        return model
 
     def save_results(self):
-        pass
-
-    def reset(self):
         pass
