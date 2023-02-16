@@ -53,6 +53,7 @@ class BaseAlgorithmSelection:
             cnt += 1
 
         # set additional attributes
+        self.n_arms = len(self.arms)
         self.best_model = None
         self.best_model_eval = None
         self.last_pull = None
@@ -310,9 +311,9 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
             # update the sigma_i
             if h > 1:
                 res = 0
-                for l in range(n-h, n):
-                    estimated_reward = self.scores[arm][l]
-                    estimated_increment = (projection_point - l) * (estimated_reward - self.scores[arm][l - h]) / h
+                for j in range(n - h, n):
+                    estimated_reward = self.scores[arm][j]
+                    estimated_increment = (projection_point - j) * (estimated_reward - self.scores[arm][j - h]) / h
                     res += (estimated_reward + estimated_increment - self.mu_check[arm]) ** 2
                 self.sigma[arm] = math.sqrt(res / (h - 1))
 
@@ -326,3 +327,63 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
 
     def save_results(self):
         pass
+
+
+class EfficientCASHRB(BaseAlgorithmSelection):
+    def __init__(self, budget=None, train_data_input=None, train_data_output=None, arm_dictionary=None,
+                 trials_per_step=1, n_jobs=1, parallel_arms=1):
+        # super class instantiation
+        super().__init__(budget=budget, train_data_input=train_data_input, train_data_output=train_data_output,
+                         arm_dictionary=arm_dictionary, trials_per_step=trials_per_step, n_jobs=n_jobs,
+                         parallel_arms=parallel_arms)
+
+        # set additional attributes
+        self.upper_bounds = np.ones(self.n_arms)
+        self.lower_bounds = np.zeros(self.n_arms)
+        self.S_candidate = {}
+        for i in range(self.n_arms):
+            self.S_candidate[i] = i
+        self.pulls = np.zeros(self.n_arms)
+        self.scores = np.zeros((self.n_arms, self.budget))
+
+    def learn(self):
+        # iterate over the budget
+        while self.step_id < self.budget:
+            # iterate over the remaining algorithms
+            for arm in self.S_candidate:
+                # increment the step id
+                self.step_id += 1
+                print("[Log] Step: ", self.step_id)
+                print("[Log] Pulls: ", self.pulls)
+                print("[Log] Scores: ", self.scores)
+                print("[Log] UBs: ", self.upper_bounds)
+                print("[Log] LBs: ", self.lower_bounds)
+                print("[Log] Candidates: ", self.S_candidate)
+
+                # pull the current arm
+                self.last_pull = int(arm)
+                self.arms[self.last_pull].tuner.tune(self.trials_per_step)
+
+                # update the best and get the mean observation
+                reward = self.update_best()
+
+                # update the arm's parameters
+                self.pulls[self.last_pull] += 1
+                n = int(self.pulls[self.last_pull])
+                self.scores[self.last_pull][n - 1] = reward
+
+                # spot the rate, ub and lb
+                weight = reward - self.lower_bounds[self.last_pull]
+                self.upper_bounds[self.last_pull] = min(1, reward + weight*(self.budget - self.step_id))
+                self.lower_bounds[self.last_pull] = reward
+
+            # elimination procedure
+            to_del = []
+            for i in self.S_candidate:
+                if i not in to_del:
+                    for j in self.S_candidate:
+                        if j not in to_del:
+                            if (j > i) and (j != i) and (self.lower_bounds[i] >= self.upper_bounds[j]):
+                                to_del.append(j)
+            for elem in to_del:
+                del self.S_candidate[elem]
