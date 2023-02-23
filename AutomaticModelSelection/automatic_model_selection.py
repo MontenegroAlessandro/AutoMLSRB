@@ -1,5 +1,9 @@
 # Here we implement different versions of Algorithm Selection Modules
 import math
+import json
+import os
+import errno
+import io
 import numpy as np
 from statistics import mean
 
@@ -17,7 +21,7 @@ class Arm:
 # Class implementing the base round-robin Algorithm Selection
 class BaseAlgorithmSelection:
     def __init__(self, budget=None, train_data_input=None, train_data_output=None, arm_dictionary=None,
-                 trials_per_step=1, n_jobs=1, parallel_arms=1):
+                 trials_per_step=1, n_jobs=1, parallel_arms=1, log_path=None):
         """
         :param budget: how many pulls (i.e., steps of HPO)
         :param train_data_input: the X
@@ -33,6 +37,7 @@ class BaseAlgorithmSelection:
         assert arm_dictionary is not None, "[Error] No Arms provided."
         assert trials_per_step >= 1, "[Error] Illegal Number of trials per step."
         assert n_jobs >= 1 and parallel_arms >= 1, "[Error] Illegal Parallelization parameters."
+        assert log_path is not None, "[Error] Invalid Log Path."
 
         if parallel_arms > len(arm_dictionary):
             parallel_arms = len(arm_dictionary)
@@ -44,6 +49,7 @@ class BaseAlgorithmSelection:
         self.trials_per_step = trials_per_step
         self.n_jobs = n_jobs
         self.parallel_arms = parallel_arms
+        self.log_path=log_path
 
         # define the arms dictionary to have correct key values
         self.arms = {}
@@ -53,17 +59,23 @@ class BaseAlgorithmSelection:
             cnt += 1
 
         # set additional attributes
+        self.name = "RoundRobin"
         self.n_arms = len(self.arms)
         self.best_model = None
         self.best_model_eval = None
         self.last_pull = None
         self.step_id = 0
+        self.results = dict()
+        self.pull_scores = np.zeros(self.budget)
+        self.pulled_arms = np.zeros(self.budget)
+        self.recommendation = None
 
     def learn(self):
         # cycle over the arms and pull them
         for _ in range(self.budget):
             # select the next arm to pull
             self.last_pull = self.step_id % len(self.arms)
+            self.pulled_arms[self.step_id] = self.last_pull
 
             # pull the arm
             print("[Log] To pull: ", self.last_pull)
@@ -72,7 +84,13 @@ class BaseAlgorithmSelection:
             # update the best
             self.update_best()
 
-            # todo: save results in a json + save the current best model (???)
+            # save results
+            self.results = dict(
+                pulled_arms=self.pulled_arms.tolist(),
+                scores=self.pull_scores.tolist(),
+                recommendation=self.recommendation
+            )
+            self.save_res()
 
             # update the step_id
             self.step_id += 1
@@ -90,20 +108,40 @@ class BaseAlgorithmSelection:
         costs = [self.arms[self.last_pull].tuner.hpoptimizer.runhistory.get_cost(config) for config in configurations]
         incumbent = configurations[np.argmin(costs)]
         incumbent_cost = np.min(costs)
-        if self.best_model is None or self.best_model_eval >= incumbent_cost:
+        if self.best_model is None or self.best_model_eval > incumbent_cost:
             print("[Log] New best: ", self.last_pull, " score: ", 1 - incumbent_cost)
             self.best_model = self.arms[self.last_pull].model(**incumbent)
             self.best_model_eval = incumbent_cost
-        mean_cost = mean(costs)
+            self.recommendation = self.last_pull
+        costs = [self.arms[self.last_pull].tuner.hpoptimizer.runhistory.get_cost(config) for config in configurations
+                 if self.arms[self.last_pull].tuner.hpoptimizer.runhistory.get_cost(config) != 0]
+        if len(costs) - self.trials_per_step >= 0:
+            mean_cost = mean(costs[len(costs) - self.trials_per_step:])
+        else:
+            mean_cost = mean(costs)
         print("[Log] Reward: ", 1 - mean_cost)
+        self.pull_scores[self.step_id] = 1 - mean_cost
         return 1 - mean_cost
+
+    def save_res(self):
+        name = self.log_path + "/" + self.name + "_results.json"
+
+        if not os.path.exists(os.path.dirname(name)):
+            try:
+                os.makedirs(os.path.dirname(name))
+            except OSError as exc:  # Guard against race condition
+                if exc.errno != errno.EEXIST:
+                    raise
+
+        with io.open(name, 'w', encoding='utf-8') as f:
+            f.write(json.dumps(self.results, ensure_ascii=False, indent=4))
 
 
 # Class implementing Algorithm Selection via Stochastic Rising Bandits
 class AlgorithmSelectionSRB(BaseAlgorithmSelection):
     def __init__(self, exp_param=1, sigma=0.1, eps=0.25, budget=None, train_data_input=None, train_data_output=None,
                  arm_dictionary=None,
-                 trials_per_step=1, n_jobs=1, parallel_arms=1):
+                 trials_per_step=1, n_jobs=1, parallel_arms=1, log_path=None):
         """
         :param exp_param: exploration parameter
         :param sigma: expected noise
@@ -119,7 +157,7 @@ class AlgorithmSelectionSRB(BaseAlgorithmSelection):
         # initialize the super class
         super().__init__(budget=budget, train_data_input=train_data_input, train_data_output=train_data_output,
                          arm_dictionary=arm_dictionary, trials_per_step=trials_per_step, n_jobs=n_jobs,
-                         parallel_arms=parallel_arms)
+                         parallel_arms=parallel_arms, log_path=log_path)
 
         # check additional input
         assert exp_param >= 0, "[Error] Illegal Exploration Parameter."
@@ -132,6 +170,7 @@ class AlgorithmSelectionSRB(BaseAlgorithmSelection):
         self.eps = eps
 
         # set additional attributes
+        self.name = "RUCB"
         self.n_arms = len(self.arms)
         self.warmup = True
         self.pulls = np.zeros(self.n_arms)
@@ -156,12 +195,21 @@ class AlgorithmSelectionSRB(BaseAlgorithmSelection):
                 self.last_pull = np.argmax(self.upper_bound)
                 print("[Log] Pull: ", self.last_pull)
                 print("[Log] UBs: ", self.upper_bound)
+            self.pulled_arms[self.step_id] = self.last_pull
 
             # pull the arm
             self.arms[self.last_pull].tuner.tune(self.trials_per_step)
 
             # update the best
             reward = self.update_best()
+
+            # save results
+            self.results = dict(
+                pulled_arms=self.pulled_arms.tolist(),
+                scores=self.pull_scores.tolist(),
+                recommendation=self.recommendation
+            )
+            self.save_res()
 
             # update the parameters
             self.step_id += 1
@@ -212,7 +260,7 @@ class AlgorithmSelectionSRB(BaseAlgorithmSelection):
 class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
     def __init__(self, exp_param=1, eps=0.25, budget=None, train_data_input=None, train_data_output=None,
                  arm_dictionary=None,
-                 trials_per_step=1, n_jobs=1, parallel_arms=1):
+                 trials_per_step=1, n_jobs=1, parallel_arms=1, log_path=None):
         """
         AlgorithmSelectionSRB module with online learning of sigma.
         :param exp_param: exploration parameter
@@ -228,7 +276,7 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
         # initialize the super class
         super().__init__(budget=budget, train_data_input=train_data_input, train_data_output=train_data_output,
                          arm_dictionary=arm_dictionary, trials_per_step=trials_per_step, n_jobs=n_jobs,
-                         parallel_arms=parallel_arms)
+                         parallel_arms=parallel_arms, log_path=log_path)
 
         # check additional input
         assert exp_param >= 0, "[Error] Illegal Exploration Parameter."
@@ -239,6 +287,7 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
         self.eps = eps
 
         # set additional attributes
+        self.name = "AdaptiveRUCB"
         self.n_arms = len(self.arms)
         self.warmup = True
         self.pulls = np.zeros(self.n_arms)
@@ -254,6 +303,7 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
 
         # The sigma parameter is initialized with the standard deviation of the Uniform-Distribution
         self.sigma = 0.5 * np.ones(self.n_arms)
+        self.sigmas = np.zeros((self.budget, self.n_arms))
 
     def learn(self):
         for _ in range(self.budget):
@@ -267,6 +317,7 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
                 print("[Log] Pull: ", self.last_pull)
                 print("[Log] UBs: ", self.upper_bound)
             print("[Log] Sigma: ", self.sigma)
+            self.pulled_arms[self.step_id] = self.last_pull
 
             # pull the arm
             self.arms[self.last_pull].tuner.tune(self.trials_per_step)
@@ -275,7 +326,7 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
             reward = self.update_best()
 
             # update the parameters
-            self.step_id += 1
+            # self.step_id += 1
             arm = int(self.last_pull)
             self.pulls[arm] += 1
 
@@ -301,7 +352,7 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
             c = self.c[arm]
             d = self.d[arm]
 
-            projection_point = self.budget - self.step_id + n
+            projection_point = self.budget - (self.step_id+1) + n
 
             self.mu_check[arm] = (1 / h) * (a + (projection_point * (a - b) / h) - ((c - d) / h)) if h > 0 else 0
             self.beta_check[arm] = self.sigma[arm] * (projection_point - n + h - 1) * math.sqrt(
@@ -316,10 +367,21 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
                     estimated_increment = (projection_point - j) * (estimated_reward - self.scores[arm][j - h]) / h
                     res += (estimated_reward + estimated_increment - self.mu_check[arm]) ** 2
                 self.sigma[arm] = math.sqrt(res / (h - 1))
+            self.sigmas[self.step_id] = self.sigma
 
             # check if the warmup phase is over
             if 0 not in self.window:
                 self.warmup = False
+
+            # save results
+            self.results = dict(
+                pulled_arms=self.pulled_arms.tolist(),
+                scores=self.pull_scores.tolist(),
+                recommendation=self.recommendation,
+                sigmas=self.sigmas.tolist()
+            )
+            self.save_res()
+            self.step_id += 1
 
         # fit the model on the data
         model = self.best_model.fit(self.X, self.Y)
@@ -331,13 +393,14 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
 
 class EfficientCASHRB(BaseAlgorithmSelection):
     def __init__(self, budget=None, train_data_input=None, train_data_output=None, arm_dictionary=None,
-                 trials_per_step=1, n_jobs=1, parallel_arms=1):
+                 trials_per_step=1, n_jobs=1, parallel_arms=1, log_path=None):
         # super class instantiation
         super().__init__(budget=budget, train_data_input=train_data_input, train_data_output=train_data_output,
                          arm_dictionary=arm_dictionary, trials_per_step=trials_per_step, n_jobs=n_jobs,
-                         parallel_arms=parallel_arms)
+                         parallel_arms=parallel_arms, log_path=log_path)
 
         # set additional attributes
+        self.name = "EfficientCash"
         self.upper_bounds = np.ones(self.n_arms)
         self.lower_bounds = np.zeros(self.n_arms)
         self.S_candidate = {}
@@ -345,6 +408,7 @@ class EfficientCASHRB(BaseAlgorithmSelection):
             self.S_candidate[i] = i
         self.pulls = np.zeros(self.n_arms)
         self.scores = np.zeros((self.n_arms, self.budget))
+        self.deleted = []
 
     def learn(self):
         # iterate over the budget
@@ -352,8 +416,7 @@ class EfficientCASHRB(BaseAlgorithmSelection):
             # iterate over the remaining algorithms
             for arm in self.S_candidate:
                 # increment the step id
-                self.step_id += 1
-                print("[Log] Step: ", self.step_id)
+                print("[Log] Step: ", self.step_id+1)
                 print("[Log] Pulls: ", self.pulls)
                 print("[Log] Scores: ", self.scores)
                 print("[Log] UBs: ", self.upper_bounds)
@@ -362,6 +425,7 @@ class EfficientCASHRB(BaseAlgorithmSelection):
 
                 # pull the current arm
                 self.last_pull = int(arm)
+                self.pulled_arms[self.step_id] = self.last_pull
                 self.arms[self.last_pull].tuner.tune(self.trials_per_step)
 
                 # update the best and get the mean observation
@@ -374,8 +438,10 @@ class EfficientCASHRB(BaseAlgorithmSelection):
 
                 # spot the rate, ub and lb
                 weight = reward - self.lower_bounds[self.last_pull]
-                self.upper_bounds[self.last_pull] = min(1, reward + weight*(self.budget - self.step_id))
+                self.upper_bounds[self.last_pull] = min(1, reward + weight*(self.budget - (self.step_id + 1)))
                 self.lower_bounds[self.last_pull] = reward
+
+                self.step_id += 1
 
             # elimination procedure
             to_del = []
@@ -383,7 +449,18 @@ class EfficientCASHRB(BaseAlgorithmSelection):
                 if i not in to_del:
                     for j in self.S_candidate:
                         if j not in to_del:
-                            if (j > i) and (j != i) and (self.lower_bounds[i] >= self.upper_bounds[j]):
+                            if (j != i) and (self.lower_bounds[i] >= self.upper_bounds[j]):
                                 to_del.append(j)
+
             for elem in to_del:
                 del self.S_candidate[elem]
+                self.deleted.append(elem)
+
+            # save res
+            self.results = dict(
+                pulled_arms=self.pulled_arms.tolist(),
+                scores=self.pull_scores.tolist(),
+                recommendation=self.recommendation,
+                deleted=self.deleted
+            )
+            self.save_res()

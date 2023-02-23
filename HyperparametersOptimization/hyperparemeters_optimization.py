@@ -12,7 +12,6 @@ from smac.scenario.scenario import Scenario
 from smac.runhistory.runhistory import RunHistory
 from smac.tae import StatusType
 from smac.stats.stats import Stats
-# todo: be sure about SMAC4BB, Hyperband etc...
 
 # Base Class
 class BaseHPO(ABC):
@@ -38,6 +37,7 @@ class TunerSMAC(BaseHPO):
         """
         # super class initializer
         super().__init__()
+        self.name = "smac"
 
         # class attributes
         assert hp_dict is not None, "[Error] No hyperparameters passed."
@@ -140,7 +140,10 @@ class TunerSMAC(BaseHPO):
             )
 
         # optimize
-        res = self.hpoptimizer.optimize()
+        try:
+            res = self.hpoptimizer.optimize()
+        except ValueError:
+            res = self.incumbent
 
         # save results
         self.save_results()
@@ -151,7 +154,7 @@ class TunerSMAC(BaseHPO):
         return res
 
     def save_results(self):
-        file_name = os.path.join(self.log_path, "results.json")
+        file_name = os.path.join(self.log_path, "results_" + self.name + ".json")
         self.hpoptimizer.runhistory.save_json(file_name)
 
     def build_last_history(self):
@@ -187,7 +190,6 @@ class TunerGenetic(BaseHPO):
     def tune(self):
         pass
 
-    # todo
     def save_results(self):
         pass
 
@@ -198,6 +200,7 @@ class TunerBOHB(BaseHPO):
                  max_budget=2, initial_budget=1, eta=1):
         # superclass initialization
         super().__init__()
+        self.name = "bohb"
 
         # class attributes
         assert hp_dict is not None, "[Error] No hyperparameters passed."
@@ -317,7 +320,10 @@ class TunerBOHB(BaseHPO):
             )
 
         # optimize
-        res = self.hpoptimizer.optimize()
+        try:
+            res = self.hpoptimizer.optimize()
+        except ValueError:
+            res = self.incumbent
 
         # save results
         self.save_results()
@@ -328,7 +334,7 @@ class TunerBOHB(BaseHPO):
         return res
 
     def save_results(self):
-        file_name = os.path.join(self.log_path, "results.json")
+        file_name = os.path.join(self.log_path, "results_" + self.name + ".json")
         self.hpoptimizer.runhistory.save_json(file_name)
 
     def build_last_history(self):

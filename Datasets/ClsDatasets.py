@@ -3,6 +3,8 @@
 # Libraries
 from abc import ABC, abstractmethod
 from sklearn import datasets
+import pandas as pd
+import numpy as np
 
 
 class BaseCLSData(ABC):
@@ -50,6 +52,16 @@ class BreastCancerDataset(BaseCLSData):
 class CreditGDataset(BaseCLSData):
     def __init__(self):
         super().__init__()
-        self.full_dataset = datasets.fetch_openml(name="credit-g", as_frame=True)
+        self.full_dataset = datasets.fetch_openml(name="credit-g", as_frame=False, parser="auto", version="active")
         self.input = self.full_dataset['data']
         self.target = self.full_dataset['target']
+
+
+class SteelPlatesFaultDataset(BaseCLSData):
+    def __init__(self):
+        super().__init__()
+        self.full_dataset = datasets.fetch_openml(name="steel-plates-fault", as_frame=False, parser="auto",
+                                                  version="active")
+        self.input = self.full_dataset['data']
+        self.target = self.full_dataset['target']
+
