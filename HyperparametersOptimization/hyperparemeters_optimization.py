@@ -29,7 +29,7 @@ class BaseHPO(ABC):
 
 # Class implementing Bayesian Optimization via SMAC
 class TunerSMAC(BaseHPO):
-    def __init__(self, hp_dict=None, objective_foo=None, trials=1, log_path=None, n_jobs=1, seed=1):
+    def __init__(self, hp_dict=None, objective_foo=None, trials=1, log_path=None, n_jobs=1, seed=1, conditions=None):
         """
         :param hp_dict: a dictionary of hyperparameters to tune
         :param objective_foo: the objective function to optimize
@@ -55,6 +55,8 @@ class TunerSMAC(BaseHPO):
         assert n_jobs > 0, "[Error] Negative parallelism"
         self.n_jobs = n_jobs
 
+        self.conditions = conditions
+
         # flag spotting if it is the first run or not
         self.first_tune = True
 
@@ -70,6 +72,9 @@ class TunerSMAC(BaseHPO):
         self.config_space.seed(self.seed)
         for key in self.hp_dict:
             self.config_space.add_hyperparameter(self.hp_dict[key])
+
+        if self.conditions is not None:
+            self.config_space.add_conditions(self.conditions)
 
         # build the scenario
         self.scenario_dict = {
@@ -197,7 +202,7 @@ class TunerGenetic(BaseHPO):
 # Class implementing HPO via a BOHB (Bayesian Optimization Hyper Band)
 class TunerBOHB(BaseHPO):
     def __init__(self, hp_dict=None, objective_foo=None, trials=1, log_path=None, n_jobs=1, seed=1,
-                 max_budget=2, initial_budget=1, eta=1):
+                 max_budget=2, initial_budget=1, eta=1, conditions=None):
         # superclass initialization
         super().__init__()
         self.name = "bohb"
@@ -227,6 +232,8 @@ class TunerBOHB(BaseHPO):
         assert eta > 0, "[Error] Illegal value for eta."
         self.eta = eta
 
+        self.conditions = conditions
+
         # flag spotting if it is the first run or not
         self.first_tune = True
 
@@ -242,6 +249,9 @@ class TunerBOHB(BaseHPO):
         self.config_space.seed(self.seed)
         for key in self.hp_dict:
             self.config_space.add_hyperparameter(self.hp_dict[key])
+
+        if self.conditions is not None:
+            self.config_space.add_conditions(self.conditions)
 
         # build the scenario
         self.scenario_dict = {

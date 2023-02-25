@@ -88,7 +88,8 @@ class BaseAlgorithmSelection:
             self.results = dict(
                 pulled_arms=self.pulled_arms.tolist(),
                 scores=self.pull_scores.tolist(),
-                recommendation=self.recommendation
+                recommendation=self.recommendation,
+                best_eval=self.best_model_eval
             )
             self.save_res()
 
@@ -104,6 +105,7 @@ class BaseAlgorithmSelection:
         Function updating the best configuration found so far.
         :return: the mean of the observed rewards
         """
+        # update the best
         configurations = list(self.arms[self.last_pull].tuner.hpoptimizer.runhistory.config_ids.keys())
         costs = [self.arms[self.last_pull].tuner.hpoptimizer.runhistory.get_cost(config) for config in configurations]
         incumbent = configurations[np.argmin(costs)]
@@ -113,12 +115,14 @@ class BaseAlgorithmSelection:
             self.best_model = self.arms[self.last_pull].model(**incumbent)
             self.best_model_eval = incumbent_cost
             self.recommendation = self.last_pull
-        costs = [self.arms[self.last_pull].tuner.hpoptimizer.runhistory.get_cost(config) for config in configurations
-                 if self.arms[self.last_pull].tuner.hpoptimizer.runhistory.get_cost(config) != 0]
-        if len(costs) - self.trials_per_step >= 0:
-            mean_cost = mean(costs[len(costs) - self.trials_per_step:])
-        else:
+
+        # compute the reward for the pull
+        costs_end = costs[len(costs) - self.trials_per_step:]
+        costs = [elem for elem in costs_end if elem < 1]
+        if len(costs) > 0:
             mean_cost = mean(costs)
+        else:
+            mean_cost = 1
         print("[Log] Reward: ", 1 - mean_cost)
         self.pull_scores[self.step_id] = 1 - mean_cost
         return 1 - mean_cost
@@ -207,7 +211,8 @@ class AlgorithmSelectionSRB(BaseAlgorithmSelection):
             self.results = dict(
                 pulled_arms=self.pulled_arms.tolist(),
                 scores=self.pull_scores.tolist(),
-                recommendation=self.recommendation
+                recommendation=self.recommendation,
+                best_eval=self.best_model_eval
             )
             self.save_res()
 
@@ -378,6 +383,7 @@ class AlgorithmSelectionAdaptiveSRB(BaseAlgorithmSelection):
                 pulled_arms=self.pulled_arms.tolist(),
                 scores=self.pull_scores.tolist(),
                 recommendation=self.recommendation,
+                best_eval=self.best_model_eval,
                 sigmas=self.sigmas.tolist()
             )
             self.save_res()
@@ -461,6 +467,7 @@ class EfficientCASHRB(BaseAlgorithmSelection):
                 pulled_arms=self.pulled_arms.tolist(),
                 scores=self.pull_scores.tolist(),
                 recommendation=self.recommendation,
+                best_eval=self.best_model_eval,
                 deleted=self.deleted
             )
             self.save_res()
