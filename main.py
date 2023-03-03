@@ -330,7 +330,7 @@ tuner_args = dict(
     seed=2023,
     eta=3, initial_budget=5, max_budget=20
 )
-tuner_adaboost = TunerSMAC(**tuner_args)
+tuner_adaboost = TunerBOHB(**tuner_args)
 
 tuner_args["hp_dict"] = deepcopy(hp_dict_xgb)
 tuner_args["objective_foo"] = objective_xgboost
@@ -360,7 +360,7 @@ tuner_svm = TunerBOHB(**tuner_args)
 tuner_args["hp_dict"] = deepcopy(hp_dict_knn)
 tuner_args["objective_foo"] = objective_knn
 tuner_args["log_path"] = base_dir + "test_knn"
-tuner_knn = TunerSMAC(**tuner_args)
+tuner_knn = TunerBOHB(**tuner_args)
 
 tuner_args["hp_dict"] = deepcopy(hp_dict_smbo)
 tuner_args["objective_foo"] = objective_smbo
