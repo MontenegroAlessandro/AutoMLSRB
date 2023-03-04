@@ -193,7 +193,8 @@ class TunerSMAC(BaseHPO):
 # Class implementing HPO via a Genetic Algorithm
 class TunerGenetic(BaseHPO, ABC):
     def __init__(self, n_agents=10, n_generations=100, prob_point_mutation=0.5, tuning_mode="best_performant_elitism",
-                 pool_size=None, objective=None, hp_dict=None, seed=0, n_jobs=1, which_res="reward", log_path=None):
+                 pool_size=None, objective=None, hp_dict=None, seed=0, n_jobs=1, which_res="reward", log_path=None,
+                 conditions=None):
         """
         :param n_agents: number of agents in each generation
         :param n_generations: number of generations
@@ -215,11 +216,14 @@ class TunerGenetic(BaseHPO, ABC):
         assert tuning_mode in ["no_elitism", "best_performant_elitism", "pool_elitism"]
         self.tuning_mode = tuning_mode
 
-        self.pool_size = pool_size
-        if (self.n_agents % self.pool_size) != 0:
-            exc_msg = '\'n_agents\' must be an exact multiple of \'pool_size\'!'
-            print(exc_msg)
-            raise ValueError(exc_msg)
+        if self.tuning_mode == "pool_elitism":
+            self.pool_size = pool_size
+            if (self.n_agents % self.pool_size) != 0:
+                exc_msg = '\'n_agents\' must be an exact multiple of \'pool_size\'!'
+                print(exc_msg)
+                raise ValueError(exc_msg)
+        else:
+            self.pool_size = None
 
         assert objective is not None
         self.objective = objective
@@ -233,6 +237,8 @@ class TunerGenetic(BaseHPO, ABC):
         self.cs = ConfigurationSpace(seed=seed)
         for hp in self.hp_dict:
             self.cs.add_hyperparameter(self.hp_dict[hp])
+        if conditions != None:
+            self.cs.add_conditions(conditions)
 
         assert which_res in ["reward", "cost"]
         self.which_res = which_res
@@ -275,9 +281,10 @@ class TunerGenetic(BaseHPO, ABC):
         else:
             self.n_generations = trials
             agents_population = deepcopy(self.last_gen)
-            self._update_best(pop=deepcopy(agents_population))
-            self.history["initial"] = deepcopy(agents_population)
-            self.save_results()
+
+        self._update_best(pop=deepcopy(agents_population))
+        self.history["initial"] = deepcopy(agents_population)
+        self.save_results()
 
         if self.tuning_mode == "no_elitism":
             final_pop = self._elitism(agents_population=deepcopy(agents_population), preserve_best=False)
@@ -445,7 +452,10 @@ class TunerGenetic(BaseHPO, ABC):
     def _update_best(self, pop=None):
         agents_list_of_evaluations = []
         for tmp_agent in pop:
-            agents_list_of_evaluations.append(tmp_agent["block_eval"])
+            if tmp_agent["block_eval"] is not None:
+                agents_list_of_evaluations.append(tmp_agent["block_eval"])
+            else:
+                agents_list_of_evaluations.append(0)
 
         sign_for_sorting = -1
         best_agent_idx = np.argsort(sign_for_sorting * np.array(agents_list_of_evaluations))[0]
@@ -464,7 +474,7 @@ class TunerGenetic(BaseHPO, ABC):
         if agent is None:
             agent = dict(
                 config=None,
-                block_eval=None
+                block_eval=0
             )
             first_mutation = True
         else:
@@ -495,7 +505,7 @@ class TunerGenetic(BaseHPO, ABC):
                         new_hps[key] = deepcopy(new_config[key])
 
                     agent["config"] = deepcopy(new_hps)
-                    agent["block_eval"] = None
+                    agent["block_eval"] = 0
 
                     break
 
